@@ -70,7 +70,81 @@ class Fattree:
 		self.switches = []
 		self.generate(num_ports)
 
-	def generate(self, num_ports):
 
+		
+  
+	def generate(self, num_ports):
+     
 		# ToDo: code for generating the fat-tree topology
+		self.num_ports = num_ports
+		num_pods = num_ports
+		num_core_switches = (num_ports // 2)**2
+		num_agg_switches_per_pod = num_ports // 2
+		num_edge_switches_per_pod = num_ports // 2
+		num_hosts_per_edge_switch = num_ports // 2
+		
+		node_id_counter = 0
+		core_switches = []
+		agg_switches_by_pod = []
+		edge_switches_by_pod = []
+
+		# 1. Create Core Switches
+		for i in range(num_core_switches):
+			node_id_counter += 1
+			switch = Node(node_id_counter, 'core')
+			core_switches.append(switch)
+			self.switches.append(switch)
+
+		# 2. Create Pods (Aggregation, Edge, Hosts)
+		for p in range(num_pods):
+			pod_agg_switches = []
+			pod_edge_switches = []
+			
+			for s in range(num_agg_switches_per_pod):
+				node_id_counter += 1
+				switch = Node(node_id_counter, 'agg')
+				switch.pod = p
+				# Store logical switch index within the pod's aggregation layer
+				switch.sw = s
+				pod_agg_switches.append(switch)
+				self.switches.append(switch)
+			
+			for s in range(num_edge_switches_per_pod):
+				node_id_counter += 1
+				switch = Node(node_id_counter, 'edge')
+				switch.pod = p
+				# Store logical switch index within the pod's edge layer
+				switch.sw = s
+				pod_edge_switches.append(switch)
+				self.switches.append(switch)
+
+				# 3. Create Hosts and connect to Edge switches
+				for h in range(num_hosts_per_edge_switch):
+					node_id_counter += 1
+					host = Node(node_id_counter, 'server')
+					host.pod = p
+					host.sw = s # Edge switch logical index
+					# Per paper, host IDs are 2 to k/2+1
+					host.hid = h + 2
+					self.servers.append(host)
+					# Connect host to its edge switch
+					switch.add_edge(host)
+			
+			agg_switches_by_pod.append(pod_agg_switches)
+			edge_switches_by_pod.append(pod_edge_switches)
+
+		# 4. Connect Edge switches to Aggregation switches (within a pod)
+		for p in range(num_pods):
+			for edge_switch in edge_switches_by_pod[p]:
+				for agg_switch in agg_switches_by_pod[p]:
+					edge_switch.add_edge(agg_switch)
+
+		# 5. Connect Aggregation switches to Core switches
+		for p in range(num_pods):
+			for s in range(num_agg_switches_per_pod):
+				agg_switch = agg_switches_by_pod[p][s]
+				for port in range(num_agg_switches_per_pod):
+					core_switch_index = s * (num_ports // 2) + port
+					core_switch = core_switches[core_switch_index]
+					agg_switch.add_edge(core_switch)
 
