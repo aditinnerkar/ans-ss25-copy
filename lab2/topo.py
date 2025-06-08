@@ -60,6 +60,10 @@ class Node:
 
 
 class Fattree:
+	"""
+	Fat-tree topology is defined using a single parameter k, which determines the number of pods, number of
+	hosts, switches and links
+	"""
 
 	def __init__(self, num_ports):
 		self.servers = []
@@ -68,4 +72,5 @@ class Fattree:
 
 	def generate(self, num_ports):
 
-		# TODO: code for generating the fat-tree topology
+		# ToDo: code for generating the fat-tree topology
+
