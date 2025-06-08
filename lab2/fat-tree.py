@@ -36,6 +36,7 @@ from mininet.topo import Topo
 from mininet.util import waitListening, custom
 
 from topo import Fattree
+import topo
 
 
 class FattreeNet(Topo):
@@ -47,7 +48,44 @@ class FattreeNet(Topo):
 
         Topo.__init__(self)
 
-        # TODO: please complete the network generation logic here
+        # A mapping from topo.Node objects to their Mininet names
+        node_map = {}
+        host_count = 0
+        switch_count = 0
+
+        # Define link properties
+        link_opts = dict(bw=15, delay='5ms')
+
+        # Add hosts
+        for host_node in ft_topo.servers:
+            host_count += 1
+            host_name = f'h{host_count}'
+            # IP address based on the paper's scheme: 10.pod.switch.ID
+            ip_addr = f'10.{host_node.pod}.{host_node.sw}.{host_node.hid}/24'
+            h = self.addHost(host_name, ip=ip_addr)
+            node_map[host_node] = h
+            
+        # Add switches
+        for switch_node in ft_topo.switches:
+            switch_count += 1
+            switch_name = f's{switch_count}'
+            s = self.addSwitch(switch_name)
+            node_map[switch_node] = s
+            
+        # Add links
+        added_edges = set()
+        all_nodes = ft_topo.servers + ft_topo.switches
+        for node in all_nodes:
+            for edge in node.edges:
+                if edge not in added_edges:
+                    node1 = edge.lnode
+                    node2 = edge.rnode
+                    
+                    mn_node1 = node_map[node1]
+                    mn_node2 = node_map[node2]
+                    
+                    self.addLink(mn_node1, mn_node2, **link_opts)
+                    added_edges.add(edge)
 
 
 def make_mininet_instance(graph_topo):
