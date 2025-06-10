@@ -53,7 +53,7 @@ class FTRouter(app_manager.RyuApp):
         self.is_active = True # Flag to control threads
         self.lock = hub.Semaphore(1) # Lock to prevent race conditions
         
-        # Total inter-switch links in a k-ary fat-tree is k^3 / 2 for k=4 this is 32
+        # Total inter-switch links
         self.total_links = (self.k**3) // 2 
         self.total_switches = len(self.topo_net.switches)
 
@@ -110,7 +110,7 @@ class FTRouter(app_manager.RyuApp):
                 try:
                     self.logger.info("All %d switches and %d links discovered. Installing flows.", len(self.datapaths), num_discovered_links)
                     self.install_all_flow_rules()
-                    self.logger.info("Proactive flow installation complete.")
+                    self.logger.info("Flow installation complete.")
                 except Exception as e:
                     self.logger.error("Error during flow installation: %s", e)
                 finally:
@@ -122,8 +122,7 @@ class FTRouter(app_manager.RyuApp):
     def install_all_flow_rules(self):
         """
         Calculates and installs all necessary flow rules for the two-level
-        routing scheme proactively. This function assumes it's called after
-        the topology is stable.
+        routing scheme proactively.
         """
         for dpid, dp in self.datapaths.items():
             parser = dp.ofproto_parser
@@ -192,7 +191,7 @@ class FTRouter(app_manager.RyuApp):
         ofproto = datapath.ofproto
         parser = datapath.ofproto_parser
         
-        # Passively store datapath object
+        # Store datapath object
         self.datapaths[datapath.id] = datapath
 
         # Install entry-miss flow entry
@@ -229,7 +228,7 @@ class FTRouter(app_manager.RyuApp):
         if eth.ethertype == ether_types.ETH_TYPE_LLDP:
             return
 
-        # Handle ARP packets with intelligent forwarding
+        # Handle ARP packets
         arp_pkt = pkt.get_protocol(arp.arp)
         if arp_pkt:
             src_ip = arp_pkt.src_ip
