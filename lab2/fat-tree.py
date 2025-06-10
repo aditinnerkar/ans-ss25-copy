@@ -41,7 +41,7 @@ import topo
 
 class FattreeNet(Topo):
     """
-    Create a fat-tree network in Mininet
+    Create a fat-tree network in Mininet from a Fattree graph object.
     """
 
     def __init__(self, ft_topo):
@@ -51,7 +51,6 @@ class FattreeNet(Topo):
         # A mapping from topo.Node objects to their Mininet names
         node_map = {}
         host_count = 0
-        switch_count = 0
 
         # Define link properties
         link_opts = dict(bw=15, delay='5ms')
@@ -59,24 +58,28 @@ class FattreeNet(Topo):
         # Add hosts
         for host_node in ft_topo.servers:
             host_count += 1
+            # Simple host naming: h1, h2, ...
             host_name = f'h{host_count}'
             # IP address based on the paper's scheme: 10.pod.switch.ID
-            ip_addr = f'10.{host_node.pod}.{host_node.sw}.{host_node.hid}/24'
+            # The subnet mask /8 is used to place all hosts in the same subnet
+            ip_addr = f'10.{host_node.pod}.{host_node.sw}.{host_node.hid}/8'
             h = self.addHost(host_name, ip=ip_addr)
             node_map[host_node] = h
             
-        # Add switches
+        # Add switches with descriptive names
         for switch_node in ft_topo.switches:
-            switch_count += 1
-            switch_name = f's{switch_count}'
+            # Descriptive naming: c for core, a for aggregation, e for edge
+            type_char = switch_node.type[0]
+            switch_name = f'{type_char}{switch_node.id + 1}'
             s = self.addSwitch(switch_name)
             node_map[switch_node] = s
             
-        # Add links
+        # Add links by iterating through the edges of the graph
         added_edges = set()
         all_nodes = ft_topo.servers + ft_topo.switches
         for node in all_nodes:
             for edge in node.edges:
+                # Ensure each link is only added once
                 if edge not in added_edges:
                     node1 = edge.lnode
                     node2 = edge.rnode
@@ -89,16 +92,20 @@ class FattreeNet(Topo):
 
 
 def make_mininet_instance(graph_topo):
-
+    """
+    Creates a Mininet instance with a remote controller.
+    """
     net_topo = FattreeNet(graph_topo)
-    net = Mininet(topo=net_topo, controller=None, autoSetMacs=True)
+    net = Mininet(topo=net_topo, controller=None, autoSetMacs=True, switch=OVSKernelSwitch)
     net.addController('c0', controller=RemoteController,
                       ip="127.0.0.1", port=6653)
     return net
 
 
 def run(graph_topo):
-
+    """
+    Starts the Mininet network and runs the CLI.
+    """
     # Run the Mininet CLI with a given topology
     lg.setLogLevel('info')
     mininet.clean.cleanup()
@@ -113,5 +120,6 @@ def run(graph_topo):
 
 
 if __name__ == '__main__':
+    # For this lab, we build a k=4 fat-tree
     ft_topo = topo.Fattree(4)
     run(ft_topo)

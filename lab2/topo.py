@@ -58,93 +58,90 @@ class Node:
 				return True
 		return False
 
+class HostNode(Node):
+    """
+    A specialized Node for hosts to store pod, switch, and ID info
+    """
+    def __init__(self, id, type, pod, sw, hid):
+        super().__init__(id, type)
+        self.pod = pod
+        self.sw = sw
+        self.hid = hid
 
 class Fattree:
-	"""
-	Fat-tree topology is defined using a single parameter k, which determines the number of pods, number of
-	hosts, switches and links
-	"""
+    """
+    This class generates the fat-tree topology graph
+    """
+    def __init__(self, num_ports):
+        self.servers = []
+        self.switches = []
+        self.generate(num_ports)
 
-	def __init__(self, num_ports):
-		self.servers = []
-		self.switches = []
-		self.generate(num_ports)
+    def generate(self, num_ports):
+        """
+        Generates the fat-tree topology
+        k = num_ports
+        """
+        k = num_ports
+        if k % 2 != 0:
+            raise ValueError("Number of ports (k) must be an even number.")
 
+        num_pods = k
+        num_core_switches = (k // 2) ** 2
+        switches_per_pod = k
+        num_agg_switches = num_edge_switches = k // 2
+        hosts_per_edge_switch = k // 2
+        
+        # To keep track of device IDs
+        core_id_start = 0
+        agg_id_start = num_core_switches
+        edge_id_start = agg_id_start + (num_pods * num_agg_switches)
+        host_id_start = 0
 
-		
-  
-	def generate(self, num_ports):
-     
-		# ToDo: code for generating the fat-tree topology
-		self.num_ports = num_ports
-		num_pods = num_ports
-		num_core_switches = (num_ports // 2)**2
-		num_agg_switches_per_pod = num_ports // 2
-		num_edge_switches_per_pod = num_ports // 2
-		num_hosts_per_edge_switch = num_ports // 2
-		
-		node_id_counter = 0
-		core_switches = []
-		agg_switches_by_pod = []
-		edge_switches_by_pod = []
+        # Create Core Switches
+        core_switches = []
+        for i in range(num_core_switches):
+            core_sw = Node(id=core_id_start + i, type='core')
+            core_switches.append(core_sw)
+        self.switches.extend(core_switches)
 
-		# 1. Create Core Switches
-		for i in range(num_core_switches):
-			node_id_counter += 1
-			switch = Node(node_id_counter, 'core')
-			core_switches.append(switch)
-			self.switches.append(switch)
+        # Create Pods (Aggregation, Edge, Hosts)
+        for p in range(num_pods):
+            agg_switches_in_pod = []
+            edge_switches_in_pod = []
 
-		# 2. Create Pods (Aggregation, Edge, Hosts)
-		for p in range(num_pods):
-			pod_agg_switches = []
-			pod_edge_switches = []
-			
-			for s in range(num_agg_switches_per_pod):
-				node_id_counter += 1
-				switch = Node(node_id_counter, 'agg')
-				switch.pod = p
-				# Store logical switch index within the pod's aggregation layer
-				switch.sw = s
-				pod_agg_switches.append(switch)
-				self.switches.append(switch)
-			
-			for s in range(num_edge_switches_per_pod):
-				node_id_counter += 1
-				switch = Node(node_id_counter, 'edge')
-				switch.pod = p
-				# Store logical switch index within the pod's edge layer
-				switch.sw = s
-				pod_edge_switches.append(switch)
-				self.switches.append(switch)
+            # Create Aggregation and Edge switches for the pod
+            for i in range(num_agg_switches):
+                # Aggregation Switches
+                agg_sw_id = agg_id_start + (p * num_agg_switches) + i
+                agg_sw = Node(id=agg_sw_id, type='aggregation')
+                agg_switches_in_pod.append(agg_sw)
 
-				# 3. Create Hosts and connect to Edge switches
-				for h in range(num_hosts_per_edge_switch):
-					node_id_counter += 1
-					host = Node(node_id_counter, 'server')
-					host.pod = p
-					host.sw = s # Edge switch logical index
-					# Per paper, host IDs are 2 to k/2+1
-					host.hid = h + 2
-					self.servers.append(host)
-					# Connect host to its edge switch
-					switch.add_edge(host)
-			
-			agg_switches_by_pod.append(pod_agg_switches)
-			edge_switches_by_pod.append(pod_edge_switches)
+                # Edge Switches
+                edge_sw_id = edge_id_start + (p * num_edge_switches) + i
+                edge_sw = Node(id=edge_sw_id, type='edge')
+                edge_switches_in_pod.append(edge_sw)
+            
+            self.switches.extend(agg_switches_in_pod)
+            self.switches.extend(edge_switches_in_pod)
+            
+            # Link Edge switches to Hosts
+            for i, edge_sw in enumerate(edge_switches_in_pod):
+                for j in range(hosts_per_edge_switch):
+                    host_id = host_id_start
+                    host_id_start += 1
+                    # IP scheme: 10.pod.switch.id (e.g., 10.0.0.2)
+                    host = HostNode(id=host_id, type='host', pod=p, sw=i, hid=j + 2)
+                    self.servers.append(host)
+                    host.add_edge(edge_sw)
+            
+            # Link Edge switches to Aggregation switches in the same pod
+            for agg_sw in agg_switches_in_pod:
+                for edge_sw in edge_switches_in_pod:
+                    agg_sw.add_edge(edge_sw)
 
-		# 4. Connect Edge switches to Aggregation switches (within a pod)
-		for p in range(num_pods):
-			for edge_switch in edge_switches_by_pod[p]:
-				for agg_switch in agg_switches_by_pod[p]:
-					edge_switch.add_edge(agg_switch)
-
-		# 5. Connect Aggregation switches to Core switches
-		for p in range(num_pods):
-			for s in range(num_agg_switches_per_pod):
-				agg_switch = agg_switches_by_pod[p][s]
-				for port in range(num_agg_switches_per_pod):
-					core_switch_index = s * (num_ports // 2) + port
-					core_switch = core_switches[core_switch_index]
-					agg_switch.add_edge(core_switch)
-
+            # Link Aggregation switches to Core switches
+            for i, agg_sw in enumerate(agg_switches_in_pod):
+                for j in range(num_core_switches // num_agg_switches):
+                    core_sw_index = i * (k // 2) + j
+                    agg_sw.add_edge(core_switches[core_sw_index])
