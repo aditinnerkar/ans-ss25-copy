@@ -47,6 +47,7 @@ class SPRouter(app_manager.RyuApp):
         self.datapaths = {}       # {dpid: datapath_object}
         self.topology_lock = hub.Semaphore(1)
         self.keep_alive_thread = hub.spawn(self._keep_alive)
+        self.link_discovery_thread = hub.spawn(self._periodic_link_discovery)
         self.logger.info("Proactive Shortest Path Router Initialized")
 
     def _keep_alive(self):
@@ -54,6 +55,42 @@ class SPRouter(app_manager.RyuApp):
         while True:
             self.logger.info("RYU-CONTROLLER-ALIVE: Waiting for network events...")
             hub.sleep(15)
+
+    def _periodic_link_discovery(self):
+        """Periodically update the topology graph."""
+        while True:
+            self._update_links()
+            hub.sleep(5)  # Update every 5 seconds
+
+    def _update_links(self):
+        """
+        Queries Ryu for all links and updates the topology graph.
+        """
+        link_list = get_link(self, None)
+        with self.topology_lock:
+            # Clear existing links
+            for dpid in self.topology_graph:
+                self.topology_graph[dpid] = {}
+            
+            # Add all discovered links
+            for link in link_list:
+                src, dst = link.src.dpid, link.dst.dpid
+                src_port, dst_port = link.src.port_no, link.dst.port_no
+                self.topology_graph.setdefault(src, {})[dst] = src_port
+                self.topology_graph.setdefault(dst, {})[src] = dst_port
+                self.logger.info("Discovered link: %s:%d <-> %s:%d", 
+                               src, src_port, dst, dst_port)
+            
+            # Log the complete topology
+            self.logger.info("Link discovery complete. Current topology graph: %s", 
+                           self.topology_graph)
+            
+            # Verify topology completeness
+            total_switches = len(self.datapaths)
+            switches_with_links = len([dpid for dpid, neighbors in self.topology_graph.items() 
+                                     if neighbors])
+            self.logger.info("Topology completeness: %d/%d switches have links", 
+                           switches_with_links, total_switches)
 
     @set_ev_cls(event.EventSwitchEnter)
     def _handler_switch_enter(self, ev):
@@ -66,22 +103,8 @@ class SPRouter(app_manager.RyuApp):
             self.datapaths[dpid] = ev.switch.dp
         self.logger.info("Switch %s has entered.", dpid)
 
-        # It's also a good time to discover any new links
+        # Trigger immediate link discovery
         self._update_links()
-
-    def _update_links(self):
-        """
-        Queries Ryu for all links and updates the topology graph.
-        """
-        link_list = get_link(self, None)
-        with self.topology_lock:
-            for link in link_list:
-                src, dst = link.src.dpid, link.dst.dpid
-                src_port, dst_port = link.src.port_no, link.dst.port_no
-                self.topology_graph.setdefault(src, {})[dst] = src_port
-                self.topology_graph.setdefault(dst, {})[src] = dst_port
-        self.logger.info("Link discovery complete.")
-
 
     def add_flow(self, datapath, priority, match, actions):
         """Helper to add a flow entry."""
@@ -97,6 +120,7 @@ class SPRouter(app_manager.RyuApp):
         with self.topology_lock:
             graph = self.topology_graph
             if src not in graph or dst not in graph:
+                self.logger.error("Cannot find path: src=%s or dst=%s not in graph", src, dst)
                 return []
             
             distance = {node: float('inf') for node in graph}
@@ -122,7 +146,13 @@ class SPRouter(app_manager.RyuApp):
             path.append(curr)
             curr = previous.get(curr)
         path.reverse()
-        return path if path and path[0] == src else []
+        
+        if path and path[0] == src:
+            self.logger.info("Found path from %s to %s: %s", src, dst, path)
+            return path
+        else:
+            self.logger.error("No valid path found from %s to %s", src, dst)
+            return []
 
     @set_ev_cls(ofp_event.EventOFPSwitchFeatures, CONFIG_DISPATCHER)
     def switch_features_handler(self, ev):
