@@ -5,10 +5,11 @@
 # aggregate bisection bandwidth under a random traffic pattern.
 #
 # Usage:
-# 1. Start Ryu controller (e.g., ryu-manager ft_routing.py)
-# 2. Make this script executable: chmod +x run_evaluation.sh
-# 3. Run with sudo:           
-#     sudo ./run_evaluation.sh
+# 1. Start a Ryu controller (e.g., ryu-manager ft_routing.py)
+# 2. Make this script executable: chmod +x evaluation.sh
+# 3. Run for a specific controller:
+#    sudo ./evaluation.sh [controller_name]
+#    (e.g., sudo ./evaluation.sh ft_routing)
 # ==============================================================================
 
 set -e
@@ -19,12 +20,21 @@ if [ "$EUID" -ne 0 ]; then
   exit
 fi
 
+# Check for controller name argument
+if [ -z "$1" ]; then
+    echo "Usage: sudo ./evaluation.sh [controller_name]"
+    echo "Example: sudo ./evaluation.sh ft_routing"
+    exit 1
+fi
 
-echo "-> Starting Fat-Tree Bandwidth Test..."
+CONTROLLER_NAME=$1
+RESULTS_FILE="results.csv"
+
+echo "-> Starting Fat-Tree Bandwidth Test for '$CONTROLLER_NAME'..."
 
 # Use a "here document" to pass the entire Python script to the python3 interpreter.
 # This avoids needing a separate .py file for the test logic.
-sudo python3 - <<EOF
+sudo python3 - "$CONTROLLER_NAME" "$RESULTS_FILE" <<EOF
 
 import sys
 import os
@@ -39,6 +49,11 @@ from mininet.topo import Topo
 
 # Add the current directory to the Python path to allow importing local modules
 sys.path.insert(0, os.getcwd())
+
+# The first argument to the python script is the controller name
+controller_name = sys.argv[1]
+# The second is the results file path
+results_file = sys.argv[2]
 
 # Import the Fattree class from your topo.py file
 from topo import Fattree
@@ -164,6 +179,11 @@ def run_performance_test():
         info(f"Total Aggregate Bandwidth: {total_bandwidth:.2f} Mbps\n")
         print("-" * 50)
 
+        # Append the result to the specified file
+        with open(results_file, "a") as f:
+            f.write(f"{controller_name},{total_bandwidth}\\n")
+        info(f"Result appended to {results_file}\n")
+
     except Exception as e:
         info(f"An error occurred: {e}\n")
     finally:
@@ -179,4 +199,4 @@ if __name__ == '__main__':
 
 EOF
 
-echo "-> Bandwidth test completed."
+echo "-> Bandwidth test for '$CONTROLLER_NAME' completed."
